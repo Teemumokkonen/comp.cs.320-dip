@@ -64,7 +64,7 @@ class Assignment:
         scalerModel = scaler.fit(assembled_df)
         scaledData = scalerModel.transform(assembled_df)
 
-        kmeans_val = KMeans(k=k, featuresCol="scaledFeatures")
+        kmeans_val = KMeans(k=k, featuresCol="scaledFeatures", seed=1)
         model = kmeans_val.fit(scaledData)
         centers = model.clusterCenters()
         return list(map(tuple, centers))
@@ -74,7 +74,7 @@ class Assignment:
         string_indexer = StringIndexer(inputCol='LABEL', outputCol='Label_numeric')
         df = string_indexer.fit(df).transform(df)
         vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b", "Label_numeric"], outputCol='features')
-        kmeans_val = KMeans(k=k, featuresCol="scaledFeatures")
+        kmeans_val = KMeans(k=k, featuresCol="scaledFeatures", seed=1)
         dataD2WithLabels = vectorAssembler.transform(df)
         scaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
         scalerModel = scaler.fit(dataD2WithLabels)
@@ -102,7 +102,7 @@ class Assignment:
         score = []
 
         for i in range(low, high + 1):
-            kmeans_val = KMeans(k=i, featuresCol="scaledFeatures")
+            kmeans_val = KMeans(k=i, featuresCol="scaledFeatures", seed=1)
             model = kmeans_val.fit(scaledData)
             predictions = model.transform(scaledData)
             silhouetteScore = evaluator.evaluate(predictions)
