@@ -2,13 +2,14 @@
 
 from typing import List, Tuple
 from pyspark.ml.clustering import KMeans
-from pyspark.ml import pipeline
+from pyspark.ml import Pipeline
 from pyspark.sql import DataFrame
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, FloatType
 from pyspark.ml.feature import VectorAssembler, StringIndexer, MinMaxScaler
 from pyspark.ml.evaluation import ClusteringEvaluator
 from pyspark.sql.functions import col, max, sum, lit, when, desc
+import matplotlib.pyplot as plt
 
 class Assignment:
     spark: SparkSession = SparkSession.builder \
@@ -39,6 +40,8 @@ class Assignment:
     # the data frame to be used in task 3 (based on dataD2 but containing numeric labels)
     dataD2WithLabels: DataFrame = spark.read.schema(schema1).option("header", "true").csv("data/dataD2.csv")
 
+    dataD2_dirty: DataFrame = spark.read.schema(schema1).option("header", "true").csv("data/dataD2_dirty.csv")
+
 
     @staticmethod
     def task1(df: DataFrame, k: int) -> List[Tuple[float, float]]:
@@ -51,13 +54,12 @@ class Assignment:
         :return: list containing the tuples of cluster centers
         """
         vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b"], outputCol='features')
-        kmeans_val: KMeans = KMeans(k=k, seed=1, featuresCol="scaledFeatures")
-        assembled_df: DataFrame = vectorAssembler.transform(df)
         scaler: MinMaxScaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
-        scalerModel: scaler = scaler.fit(assembled_df)
-        scaledData: DataFrame = scalerModel.transform(assembled_df)
-        model = kmeans_val.fit(scaledData)
-        centers: list = model.clusterCenters()
+        kmeans_val: KMeans = KMeans(k=k, seed=1, featuresCol="scaledFeatures")
+        # Defining the ML pipeline
+        pipeline = Pipeline(stages=[vectorAssembler, scaler])
+        scaledData = pipeline.fit(df).transform(df)
+        centers: list = kmeans_val.fit(scaledData).clusterCenters()
         return list(map(tuple, centers))
 
     @staticmethod
@@ -71,57 +73,76 @@ class Assignment:
         :return: list containing the tuples of cluster centers
         """
         vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b", "c"], outputCol='features')
-        assembled_df: DataFrame = vectorAssembler.transform(df)
-
-        # scale the data
-
         scaler: MinMaxScaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
-        scalerModel: scaler = scaler.fit(assembled_df)
-        scaledData: DataFrame = scalerModel.transform(assembled_df)
-
         kmeans_val: KMeans = KMeans(k=k, featuresCol="scaledFeatures", seed=1)
-        model = kmeans_val.fit(scaledData)
-        centers: list = model.clusterCenters()
+        #Defining the ML pipeline
+        pipeline = Pipeline(stages=[vectorAssembler, scaler])
+        scaledData = pipeline.fit(df).transform(df)
+        centers: list = kmeans_val.fit(scaledData).clusterCenters()
+
         return list(map(tuple, centers))
 
     @staticmethod
     def task3(df: DataFrame, k: int) -> List[Tuple[float, float]]:
+
+        # needed modifiers
         string_indexer: StringIndexer = StringIndexer(inputCol='LABEL', outputCol='Label_numeric')
-        df: DataFrame = string_indexer.fit(df).transform(df)
         vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b", "Label_numeric"], outputCol='features')
-        kmeans_val: KMeans = KMeans(k=k, featuresCol="scaledFeatures", seed=1)
-        dataD2WithLabels: DataFrame = vectorAssembler.transform(df)
         scaler: MinMaxScaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
-        scalerModel: scaler = scaler.fit(dataD2WithLabels)
-        scaledData: DataFrame = scalerModel.transform(dataD2WithLabels)
+        kmeans_val: KMeans = KMeans(k=k, featuresCol="scaledFeatures", seed=1)
+        pipeline = Pipeline(stages=[string_indexer, vectorAssembler, scaler])
+
+        # scaled dataframe
+        scaledData: DataFrame = pipeline.fit(df).transform(df)
+
+
         model = kmeans_val.fit(scaledData)
         df: DataFrame = model.transform(scaledData) # predicted/clustered dataframe
+
         most_fatal: DataFrame = df.groupBy("Label_numeric", "prediction").count().where(df.Label_numeric == 1).orderBy(desc(col("count"))).limit(2)
         clusters: List = most_fatal.rdd.map(lambda x: x.prediction).collect()
         centers: list = model.clusterCenters()
         centers: list = [(centers[clusters[0]][0], centers[clusters[0]][1]), (centers[clusters[1]][0], centers[clusters[1]][1])]
 
-
         return list(map(tuple, centers))
 
     # Parameter low is the lowest k and high is the highest one.
     @staticmethod
-    def task4(df: DataFrame, low: int, high: int) -> List[Tuple[int, float]]:
-        evaluator: ClusteringEvaluator = ClusteringEvaluator(featuresCol="scaledFeatures").setPredictionCol("prediction").setMetricName("silhouette")
-        vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b"], outputCol='features')
-        assembled_df: DataFrame = vectorAssembler.transform(df)
-        scaler: MinMaxScaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
-        scalerModel: scaler = scaler.fit(assembled_df)
-        scaledData: DataFrame = scalerModel.transform(assembled_df)
-        scaledData.show()
+    def task4(df: DataFrame, low: int, high: int, is_printing=True) -> List[Tuple[int, float]]:
         score = []
+        vectorAssembler: VectorAssembler = VectorAssembler(inputCols=["a", "b"], outputCol='features')
+        scaler: MinMaxScaler = MinMaxScaler().setInputCol("features").setOutputCol("scaledFeatures")
+        kmeans_val: KMeans = KMeans(k=low, featuresCol="scaledFeatures", seed=1)
+        evaluator: ClusteringEvaluator = ClusteringEvaluator(featuresCol="scaledFeatures").setPredictionCol("prediction").setMetricName("silhouette")
 
-        for i in range(low, high + 1):
-            kmeans_val: KMeans = KMeans(k=i, featuresCol="scaledFeatures", seed=1)
-            model = kmeans_val.fit(scaledData)
-            predictions: DataFrame = model.transform(scaledData)
-            silhouetteScore: float = evaluator.evaluate(predictions)
-            score.append((i, silhouetteScore))
+        pipeline = Pipeline(stages=[vectorAssembler, scaler, kmeans_val])
 
+        scaledData: DataFrame = pipeline.fit(df).transform(df)
+        silhouetteScore: float = evaluator.evaluate(scaledData)
 
-        return score
+        score.append((low, silhouetteScore))
+
+        if low == high:
+            return score
+
+        else:
+            score.extend(Assignment.task4(df, low+1, high, is_printing=False))
+            if is_printing:
+                x_val = [x[0] for x in score]
+                y_val = [x[1] for x in score]
+                plt.title("Score as the function of k")
+                plt.plot(x_val, y_val, color="red")
+                plt.savefig("DIP_plot.png")
+            return score
+
+    @staticmethod
+    def clean_data_frame(df: DataFrame):
+        """
+        :param df: dirty frame to be cleaned
+        :return: clean frame
+        """
+
+        df = df.dropna()
+        df = df.filter((df.LABEL != 'Unknown'))
+
+        return df

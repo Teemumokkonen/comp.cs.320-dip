@@ -136,3 +136,13 @@ class ResultTestSuite(DIPTestSuite):
             ),
             getErrorMessage(centers)
         )
+
+    def test_clean_df(self):
+        """
+        We clear None, NaN, uknown rows from the dataset.
+        There Are still outliers in there which can cause errors, otherwise the dataset it cleared
+        :return:
+        """
+        df = self.assignment.dataD2_dirty
+        df = self.assignment.clean_data_frame(df)
+        self.assertTrue(df.count(), 5025)
